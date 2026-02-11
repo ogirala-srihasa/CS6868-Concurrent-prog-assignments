@@ -11,13 +11,11 @@ type t = PetersonNode.t array(* Define this yourself *)
 let calculate_depth n =
   (* Depth = ceiling(log2(n)) *)
   if n <= 0 then invalid_arg "Number of threads must be positive";
-  if n = 1 then 1 else begin
-    let rec loop i c = 
-      if i < n then 
-        loop (i*2) (c+1)
-      else c in
-      loop 1 0
-    end
+  let rec loop i c = 
+    if i < n then 
+      loop (i*2) (c+1)
+    else c in
+    loop 1 0
 
 (* Convert thread_id to binary path representation *)
 let thread_id_to_path thread_id depth =
@@ -58,36 +56,42 @@ let create num_threads =
      tree
 
 let lock tree thread_id =
-  let path = thread_id_to_path thread_id (calculate_depth (Array.length tree)) in
-    let rec loop l = 
-      if l = 0 then ()
-      else begin
-        PetersonNode.lock (tree.(path_to_index path (l-1))) path.(l-1);
-        loop (l-1)
-      end
-    in
-    loop ((calculate_depth (Array.length tree))) 
-
-let unlock tree thread_id =
-  let d = calculate_depth (Array.length tree) in
-    let path = thread_id_to_path thread_id d in
+  if(Array.length tree = 0) then () else begin
+    let path = thread_id_to_path thread_id (calculate_depth ((Array.length tree)+1)) in
       let rec loop l = 
-        if l = d then ()
+        if l = 0 then ()
         else begin
-          PetersonNode.unlock (tree.(path_to_index path (l))) path.(l);
-          loop (l+1)
+          PetersonNode.lock (tree.(path_to_index path (l-1))) path.(l-1);
+          loop (l-1)
         end
       in
-      loop 0
+      loop ((calculate_depth (1+(Array.length tree)))) 
+    end
+
+let unlock tree thread_id =
+  if(Array.length tree = 0) then () else begin
+    let d = calculate_depth ((Array.length tree)+1) in
+      let path = thread_id_to_path thread_id d in
+        let rec loop l = 
+          if l = d then ()
+          else begin
+            PetersonNode.unlock (tree.(path_to_index path (l))) path.(l);
+            loop (l+1)
+          end
+        in
+        loop 0
+      end
 
 (* Additional utility functions for debugging and analysis *)
 
 let get_depth tree =
-  calculate_depth (Array.length tree)
+  if (Array.length tree = 0) then 0 else
+  calculate_depth (1+(Array.length tree))
 
 let get_num_nodes tree =
   Array.length tree
 
 let print_tree_info tree =
   Printf.printf "the depth of the tree-lock is %d \n" (get_depth tree);
-  Printf.printf "number of Peterson Nodes in the tree-lock id %d \n" (get_num_nodes tree)
+  Printf.printf "number of Peterson Nodes in the tree-lock id %d \n" (get_num_nodes tree);
+  Printf.printf "number of locks per thread is %d \n" (get_depth tree);

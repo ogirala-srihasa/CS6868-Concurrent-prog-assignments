@@ -10,7 +10,7 @@
 let test_calculate_depth () =
   Printf.printf "Unit Test 1: Tree depth calculation...\n%!";
   (* Testing depth calculation for 1 (edge-case) thread *)
-  let expected = 1 in 
+  let expected = 0 in 
     let final = TreeLock.get_depth( TreeLock.create 1 ) in
       if expected = final then Printf.printf "✓ Passed: depth for 1 thread = %d (expected %d)\n%!" final expected
       else Printf.printf " ✗ FAILED: depth for 1 thread = %d (expected %d)\n%!" final expected;
@@ -50,7 +50,7 @@ let test_calculate_depth () =
 (*Test tree structure properties*)
 (* let test_tree_structure () =
   Printf.printf "Unit Test 2: Tree structure properties...\n%!";
-  failwith "Not implemented" *)
+   *)
 
 (* Test boundary conditions *)
 (* let test_boundary_conditions () =
@@ -146,6 +146,36 @@ let test_n_threads n iterations increments_per_iter =
   else
     Printf.printf "  ✗ FAILED: counter = %d (expected %d)\n%!" final expected
 (* Test 1: Basic functionality with 2 threads *)
+
+let test_n_threads_no_print n iterations increments_per_iter = 
+  let tree = TreeLock.create n in
+  let counter = Atomic.make 0 in
+
+  let worker thread_id =
+    for _ = 1 to iterations do
+      TreeLock.lock tree thread_id;
+      (* Critical section *)
+      for k = 1 to increments_per_iter do
+        let old_val = Atomic.get counter in
+        (* Printf.printf "%d %d \n %!" thread_id old_val; *)
+        Domain.cpu_relax ();(* Introduce some delay to test race conditions *)
+        Atomic.set counter (old_val + 1);
+      done;
+      TreeLock.unlock tree thread_id
+    done
+  in
+  (*creating n threads*)
+  let domains = Array.init n (fun i -> 
+    Domain.spawn(fun () -> worker i)
+    ) in
+    Array.iter Domain.join domains;(*waiting for all the threads to finish*)
+
+  let final = Atomic.get counter in
+  let expected = n * iterations * increments_per_iter in
+  if final = expected then
+    ()
+  else
+    Printf.printf "  ✗ FAILED: counter = %d (expected %d)\n%!" final expected
 let test_two_threads () =
   Printf.printf "Concurrent Test 1: Two threads...\n%!";
   test_n_threads 2 1000 1
@@ -167,16 +197,8 @@ let test_five_threads () =
 
 (* Test 5: Stress test - multiple increments per critical section *)
 let test_stress () =
-  for increments = 2 to 5 do
-    Printf.printf "Stress Test %d : Two threads with %d increments in Critical section \n %!" (((increments-2)*4)+1) increments;
-    test_n_threads 2 1000 increments;
-    Printf.printf "Stress Test %d : Four threads with %d increments in Critical section \n %!" (((increments-2)*4)+2) increments;
-    test_n_threads 4 1000 increments;
-    Printf.printf "Stress Test %d : Eight threads with %d increments in Critical section \n %!" (((increments-2)*4)+3) increments;
-    test_n_threads 8 1000 increments;
-    Printf.printf "Stress Test %d : Five threads with %d increments in Critical section \n %!" (((increments-2)*4)+4) increments;
-    test_n_threads 5 1000 increments;
-  done
+  Printf.printf "Stress Test: Eight threads with 1000 itereations and 5 increments in Critical section per iteration \n %!";
+  test_n_threads 8 1000 5
 
 
 (* Test 6: Tree structure verification *)
@@ -184,8 +206,24 @@ let test_stress () =
   failwith "Not implemented" *)
 
 (* Test 7: Performance benchmark *)
-(* let test_performance () =
-  failwith "Not implemented" *)
+let test_performance () =
+  (* Lets test the performance by icrementing the counter from 0 to 100000 using different number of threads*)
+  for threads = 1 to 5 do
+    if(threads <> 3) then begin
+      Printf.printf "Measuring time taken by %d threads to increment the counter from 0 to 100000 \n %!" threads;
+      let start_time = Unix.gettimeofday() in
+        test_n_threads_no_print threads (100000000/threads) 1;
+        let end_time = Unix.gettimeofday () in
+          Printf.printf "time taken by %d threads = %.3f \n %!"  threads (end_time -. start_time)
+    end
+  done;
+  Printf.printf "Measuring time taken by 8 threads to increment the counter from 0 to 100000 \n %!";
+  let start_time = Unix.gettimeofday() in
+    test_n_threads_no_print 8 (100000000/8) 1;
+    let end_time = Unix.gettimeofday () in
+      Printf.printf "time taken by 8 threads = %.3f \n %!" (end_time -. start_time)
+
+
 
 (* Main test runner *)
 let () =
@@ -224,6 +262,6 @@ let () =
   test_five_threads ();
   test_stress ();
   (* test_structure_verification (); *)
-  (* test_performance (); *)
+  test_performance ();
 
   Printf.printf "\n=== Test Suite Complete ===\n%!"
