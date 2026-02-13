@@ -20,6 +20,8 @@ let calculate_depth n =
 (* Convert thread_id to binary path representation *)
 let thread_id_to_path thread_id depth =
   (* Returns array of 0s and 1s representing path from root to leaf *)
+  if thread_id < 0 then invalid_arg "id of thread must be non-negative";
+  if depth < 0 then invalid_arg "depth must be non-negative";
   let arr = Array.make depth 0 in 
     (
       let rec loop t i = 
@@ -37,6 +39,7 @@ let path_to_index path level =
   (* Level 0 is root (index 0)
      Left child of i is 2*i + 1
      Right child of i is 2*i + 2 *)
+  if level < 0 then invalid_arg "level must be non-negative";
   let rec loop i = 
     if i = 0 then 0
     else (2 * loop (i-1) ) + ( path.(i-1) + 1 )
@@ -44,18 +47,21 @@ let path_to_index path level =
 
 (* Helper function to calculate number of internal nodes in a tree of depth d*)
 let calculate_internal_nodes depth = 
+  if depth < 0 then invalid_arg "depth must be non-negative";
   let rec loop acc i = 
     if i < depth then loop (acc*2) (i+1)
     else acc
   in (loop 1 0) - 1
 
 let create num_threads =
+  if num_threads <= 0 then invalid_arg "failed to create tree: Number of threads must be positive to create a tree";
   let d = calculate_depth num_threads in
     let n = calculate_internal_nodes d in
      let tree = Array.init n (fun _ -> PetersonNode.create()) in
      tree
 
 let lock tree thread_id =
+  if thread_id < 0 then invalid_arg "failed lock: id of thread must be non-negative";
   if(Array.length tree = 0) then () else begin
     let path = thread_id_to_path thread_id (calculate_depth ((Array.length tree)+1)) in
       let rec loop l = 
@@ -69,6 +75,7 @@ let lock tree thread_id =
     end
 
 let unlock tree thread_id =
+  if thread_id < 0 then invalid_arg "failed unlock: id of thread must be non-negative";
   if(Array.length tree = 0) then () else begin
     let d = calculate_depth ((Array.length tree)+1) in
       let path = thread_id_to_path thread_id d in
