@@ -1,0 +1,3 @@
+(test
+ (name test_assignment2)
+ (libraries assignment2))
