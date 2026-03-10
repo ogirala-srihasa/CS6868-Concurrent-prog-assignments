@@ -1,4 +1,3 @@
-
 (** Manual Concurrent Tests for Atomic Snapshot
 
     These tests verify basic correctness of the snapshot implementation
@@ -23,7 +22,13 @@
     This test should PASS if your basic operations work correctly.
 *)
 let test_sequential () =
-  failwith "Not implemented"
+  let _snapshot = Snapshot.create 4 0 in
+  for i = 1 to 4 do
+    Snapshot.update _snapshot (i-1) (i*10)
+  done;
+  if(Snapshot.scan _snapshot = [|10;20;30;40|]) then
+    Printf.printf "✓ Passed: Sequential test passed \n"
+  else Printf.printf "✗ FAILED: Sequential test failed \n"
 
 (** Test 2: Concurrent updates, single scanner
 
@@ -43,8 +48,29 @@ let test_sequential () =
 
     This test should PASS if you use Atomic.t correctly (no data races).
 *)
+let worker thread_id _snapshot _init_value = 
+  for i = 1 to 100 do
+    Snapshot.update _snapshot thread_id (_init_value + i)
+  done
+let concurrent_scanner _snapshot = 
+  let scan = Snapshot.scan  _snapshot in scan
 let test_concurrent_updates () =
-  failwith "Not implemented"
+  let _snapshot = Snapshot.create 4 0 in
+  for i = 1 to 4 do
+     Snapshot.update _snapshot (i-1) ((i-1)*1000)
+  done;
+  let scan = Snapshot.scan _snapshot in
+  let domains = List.init 4 (fun i -> Domain.spawn(fun () -> worker i _snapshot scan.(i)) ) in
+  let scaner_thread = Domain.spawn(fun () -> concurrent_scanner _snapshot) in
+  let s = Domain.join scaner_thread 
+  in List.iter Domain.join domains;
+  if((0 <= s.(0)) && (s.(0) <= 100) && (1000 <= s.(1)) && (s.(1) <= 1100) && (2000 <= s.(2)) && (s.(2) <= 2100) && (3000 <= s.(3)) && (s.(3) <= 3100)) then
+    let s2 = Snapshot.scan _snapshot in
+      if(s2 = [|100;1100;2100;3100|]) then 
+        Printf.printf "✓ Passed: Concurrent updates test passed \n"
+      else
+        Printf.printf "✗ FAILED: Concurrent updates test failed \n" 
+  else Printf.printf "✗ FAILED: Concurrent updates test failed \n"
 
 (** Test 3: Multiple concurrent scanners - THE CRITICAL TEST FOR DOUBLE-COLLECT
 
@@ -71,8 +97,36 @@ let test_concurrent_updates () =
     This test should PASS (all 200 scans consistent) ONLY if you implement
     the double-collect algorithm correctly. A naive scan will fail here.
 *)
+let updater_worker  _snapshot ref counter = 
+  while (Atomic.get ref) do 
+      let i = Atomic.fetch_and_add counter 1 in 
+        Snapshot.update _snapshot 0 (i*1);
+        Snapshot.update _snapshot 1 (i*10);
+        Snapshot.update _snapshot 2 (i*100)
+  done
+
+let reader_worker _snapshot =
+  let ans = ref true in
+  for i = 1 to 50 do
+    let scan = Snapshot.scan  _snapshot in
+    let _bo = ((scan.(0) >= (scan.(1)/10)) && (scan.(1) >= (scan.(2)/10))) in ans := !ans && _bo;
+  done;
+  !ans
 let test_concurrent_scans () =
-  failwith "Not implemented"
+  let ref = Atomic.make true in
+  let counter = Atomic.make 1 in
+  let _snapshot = Snapshot.create 3 0 in
+  let updater = Domain.spawn(fun() -> updater_worker _snapshot ref counter) in
+  let reader1 = Domain.spawn(fun() -> reader_worker _snapshot) in
+  let reader2 = Domain.spawn(fun() -> reader_worker _snapshot) in
+  let reader3 = Domain.spawn(fun() -> reader_worker _snapshot) in
+  let reader4 = Domain.spawn(fun() -> reader_worker _snapshot) in
+  let r1 = Domain.join reader1 in let r2 = Domain.join reader2 in let r3 = Domain.join reader3 in let r4 = Domain.join reader4 in
+  Atomic.set ref false;
+  let _ = Domain.join updater in
+  if((r1 && r2) && (r3 && r4)) then Printf.printf "✓ Passed: Concurrent scans test passed \n"
+  else Printf.printf "✗ FAILED: Concurrent scans test failed \n"
+
 
 (** Test 4: High contention stress test
 
@@ -89,8 +143,54 @@ let test_concurrent_scans () =
     This test should PASS if your atomic operations are correct and your
     double-collect handles high contention gracefully.
 *)
+let islegal _scan = 
+  let ans = ref true in
+  for i = 0 to 4 do
+    for j = (i+1) to 4 do
+      if(((_scan.(i))/5000) =  ((_scan.(j))/5000)) then
+        begin
+        if(((_scan.(i)) mod 1000) <  ((_scan.(j)) mod 1000)) then ans := false
+        end
+    done
+  done;
+  !ans
+
+        
+
+let worker_2 _snapshot id = 
+  if(id mod 2 = 0) then
+    let init_val = (5000 * (id/2)) in
+    for j = 1 to 1000 do
+      for i = 0 to 4 do
+        Snapshot.update _snapshot i (init_val + (i * 1000) + j)
+      done
+    done;
+    true
+  else begin
+    let ans = ref true in
+    for j = 1 to 1000 do
+      let _scan = Snapshot.scan _snapshot in
+      ans := !ans && (islegal _scan)
+    done;
+    !ans
+  end
+
+    
 let test_high_contention () =
-  failwith "Not implemented"
+  let _snapshot = Snapshot.create 5 0 in
+  for i = 0 to 4 do
+    (*to make sure all starting points are different*)
+    Snapshot.update _snapshot i (i* -1)
+  done;
+  let domains = List.init 8 (fun j -> Domain.spawn(fun () -> worker_2  _snapshot j)) in
+  let results = List.map Domain.join domains in
+  let all_passed = List.for_all (fun res -> res = true) results in
+  if all_passed then
+  Printf.printf "✓ Passed: High contention test passed \n"
+  else
+  Printf.printf "✗ FAILED: High contention test failed \n" 
+
+
 
 (** Main test runner *)
 let () =

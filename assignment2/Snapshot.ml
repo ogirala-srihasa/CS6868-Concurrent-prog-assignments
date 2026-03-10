@@ -6,14 +6,26 @@ type 'a t = {
   n : int;                         (* Number of registers *)
 }
 
-let create _n _init_value = failwith "Not implemented"
+let create _n _init_value = 
+  if _n <= 0 then invalid_arg "the size must be a positive integer" else
+  let registers = Array.init _n  (fun _ -> Atomic.make  _init_value) in
+  {registers = registers; n =  _n}
 
-let update _snapshot _idx _value = failwith "Not implemented"
+
+
+let update _snapshot _idx _value = 
+  if ( _idx < 0  || _idx >= _snapshot.n ) then invalid_arg "Index is out of range" else
+    Atomic.set _snapshot.registers.(_idx) _value
+
 
 (** Helper: collect all register values *)
-let collect _snapshot = failwith "Not implemented"
+let collect _snapshot = 
+  let a = Array.init _snapshot.n (fun i -> Atomic.get _snapshot.registers.(i) ) in a
 
 (** Scan using double-collect algorithm *)
-let scan _snapshot = failwith "Not implemented"
+let rec scan _snapshot = 
+  let a1 = collect _snapshot in
+  let a2 = collect _snapshot in
+  if(a1 = a2) then a1 else scan _snapshot
 
-let size _snapshot = failwith "Not implemented"
+let size _snapshot = _snapshot.n
