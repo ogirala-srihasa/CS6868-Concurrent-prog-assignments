@@ -432,7 +432,7 @@ All manual tests passed!
 ThreadSanitizer: reported 5 warnings
 ```
 
-* Atomic implementation avoids data races because these locations enforce a strict  happens before relationship between 2 conflicting operations
+* Atomic implementation avoids data races because these locations enforce a strict  happens before relationship between 2 conflicting operations using hardware fences
 
 when implemented using atomics(no data races) the terminal output will be 
 
