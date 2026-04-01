@@ -11,5 +11,7 @@ _build/
 *.cmx
 *.o
 
+CS25M034_assignment1/
+CS25M034_assignment2/
 
 .DS_Store
