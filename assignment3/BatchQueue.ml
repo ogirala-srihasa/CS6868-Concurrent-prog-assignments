@@ -149,6 +149,10 @@ let try_deq _q _n =
         Some a)   
     )
 
-let size _q =  Queue.length _q.buffer
+let size _q =  
+  Mutex.lock _q.mutex;
+  Fun.protect ~finally:(fun () -> Mutex.unlock _q.mutex)(fun () -> 
+    Queue.length _q.buffer  
+    )
 
 let capacity _q = _q.capacity
