@@ -142,8 +142,40 @@ let test_batch_atomicity () =
   let deq1 = Domain.spawn (fun() -> BatchQueue.deq bq 200) in
   let _ = Domain.join enq1 in let pitems = Domain.join deq1 in let _ = Domain.join enq2 in
   if(pitems = (Array.append arr1 arr2) || pitems = (Array.append arr2 arr1)) then printf "atomicity test passed \n" else printf "atomicity test faile \n"
+
+let enq_worker i bq = 
+  let start = ref (300 * i) in
+  for _ = 1 to 100 do
+    let arr = [|!start; !start+1;!start +2|] in
+    BatchQueue.enq bq arr;
+    start := !start + 3
+  done
+
+
+let deq_worker i bq = 
+  let arr = ref [||] in
+  for _ = 1 to 100 do
+    let pitems = BatchQueue.deq bq 3 in
+    arr := Array.append !arr pitems
+  done;
+  !arr
+
 (** Stress test: multiple producers and consumers with many operations. *)
-let test_stress () = failwith "TODO: implement"
+let test_stress () = 
+  let bq = BatchQueue.create 10 in
+  let enq1 = Domain.spawn (fun () -> enq_worker 0 bq) in
+  let enq2 = Domain.spawn (fun () -> enq_worker 1 bq) in
+  let enq3 = Domain.spawn (fun () -> enq_worker 2 bq) in
+  let deq1 = Domain.spawn (fun () -> deq_worker 0 bq) in
+  let deq2 = Domain.spawn (fun () -> deq_worker 1 bq) in
+  let deq3 = Domain.spawn (fun () -> deq_worker 2 bq) in
+  let _ = Domain.join enq1 in let _ = Domain.join enq2 in let _ = Domain.join enq3 in
+  let pitems1 = Domain.join deq1 in let pitems2 = Domain.join deq2 in let pitems3 = Domain.join deq3 in
+  let pitems =  Array.append pitems1 (Array.append pitems2 pitems3) in Array.sort compare pitems;
+  let expected = Array.init 900 (fun i -> i) in if(pitems = expected) then printf "stress test passed \n" else printf "stress test failed \n"
+
+  
+
 
 let () =
   test_sequential_basic ();
@@ -154,5 +186,5 @@ let () =
   test_enqueuer_head_of_line_blocking ();
   test_no_lost_items ();
   test_batch_atomicity ();
-  (* test_stress (); *)
+  test_stress ();
   printf "\nAll manual tests passed!\n"
