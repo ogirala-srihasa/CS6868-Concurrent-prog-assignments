@@ -152,7 +152,7 @@ let enq_worker i bq =
   done
 
 
-let deq_worker i bq = 
+let deq_worker _i bq = 
   let arr = ref [||] in
   for _ = 1 to 100 do
     let pitems = BatchQueue.deq bq 3 in
