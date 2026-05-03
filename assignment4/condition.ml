@@ -11,9 +11,14 @@ type t = {
   waiters : Trigger.t Queue.t;
 }
 
-let create () = failwith "Not implemented"
+let create () = {waiters = Queue.create ()}
 
-let wait _c _m = failwith "Not implemented"
+let wait c m = 
+   let trigger = Trigger.create () in
+   Queue.push trigger c.waiters;
+   Mutex.unlock m;
+   Trigger.await trigger;
+   Mutex.lock m
 
 (** Pop triggers until one is signalled successfully (skipping stale
     ones — unused here because [Condition] does not participate in
@@ -24,6 +29,13 @@ let rec signal_one waiters =
     let trigger = Queue.pop waiters in
     if not (Trigger.signal trigger) then signal_one waiters
 
-let signal _c = failwith "Not implemented"
+let signal c = 
+  signal_one c.waiters
 
-let broadcast _c = failwith "Not implemented"
+let rec broadcast c = 
+  if Queue.is_empty c.waiters then ()
+  else 
+    let trigger = Queue.pop c.waiters in
+    ignore(Trigger.signal trigger);
+    broadcast c
+  
