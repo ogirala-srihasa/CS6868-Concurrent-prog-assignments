@@ -14,6 +14,19 @@ type t = {
   mutable round : int;
 }
 
-let create _n = failwith "Not implemented"
+let create n = {m = Mutex.create (); c = Condition.create (); n = n; arrived = 0; round = 0} 
 
-let wait _b = failwith "Not implemented"
+let wait b = 
+  Mutex.lock b.m;
+  if b.arrived = (b.n - 1) then begin
+    b.arrived <- 0;
+    b.round <- b.round + 1;
+    Condition.broadcast b.c;
+  end else begin
+    b.arrived <- b.arrived +1;
+    let round = b.round in
+    while round == b.round do
+      Condition.wait b.c b.m
+    done;
+  end;
+  Mutex.unlock b.m;

@@ -102,7 +102,41 @@ end
 
 (** Test bounded-buffer throughput — no items lost, no duplicates,
     under multiple concurrent producers and consumers. *)
-let test_bounded_buffer () = failwith "Not implemented"
+let test_bounded_buffer () = 
+  let buffer = Bounded_buffer.create 6 in
+  let allsum = ref 0 in 
+  let nitems = ref 0 in
+  Sched.run(fun () ->
+    (*first producer*)
+    Sched.fork(fun () ->
+      for i = 1 to 100 do
+        Bounded_buffer.put buffer i
+      done;
+    );
+    (*Second producer*)
+    Sched.fork(fun () ->
+      for i = 1 to 100 do
+        Bounded_buffer.put buffer i
+      done;
+    );
+    (*first consumer*)
+    Sched.fork(fun () ->
+      for i = 1 to 100 do
+        allsum := !allsum + Bounded_buffer.get buffer ;
+        nitems := !nitems + 1
+      done;
+    );
+    (*Second consumer*)
+    Sched.fork(fun () ->
+      for i = 1 to 100 do
+        allsum := !allsum + Bounded_buffer.get buffer ;
+        nitems := !nitems + 1
+      done;
+    )
+  );
+  if !nitems <> 200 then (false, "items lost")
+  else if !allsum <> 10100 then (false , "some elements got duplicated")
+  else (true,"no items lost, no duplicates under multiple producers and consumers")
 
 (** The [Rw_lock] module below is PROVIDED — writer-priority R/W lock.
     Do not modify it; use it in [test_readers_writers]. *)
@@ -153,15 +187,116 @@ end
 
 (** Test the R/W exclusion invariants: at most one writer,
     readers and writers never coexist. *)
-let test_readers_writers () = failwith "Not implemented"
+let test_readers_writers () = 
+  let rwlock = Rw_lock.create () in
+  let activereaders = ref 0 in
+  let activewriters = ref 0 in
+  let invariant_violated = ref false in
+
+  let check_invariant () =
+    if !activewriters > 1 || (!activewriters = 1 && !activereaders > 0) then
+      invariant_violated := true
+  in
+
+  Sched.run (fun () ->
+    let spawn_reader () =
+      Sched.fork (fun () ->
+        for _ = 1 to 5 do
+          Rw_lock.read_lock rwlock;
+          activereaders := !activereaders + 1;
+          check_invariant ();
+          Sched.yield (); 
+          check_invariant ();
+          activereaders := !activereaders - 1;
+          Rw_lock.read_unlock rwlock;
+          Sched.yield () 
+        done
+      )
+    in
+
+    let spawn_writer () =
+      Sched.fork (fun () ->
+        for _ = 1 to 5 do
+          Rw_lock.write_lock rwlock;
+          activewriters := !activewriters + 1;
+          check_invariant ();
+          Sched.yield (); 
+          check_invariant ();
+          activewriters := !activewriters - 1;
+          Rw_lock.write_unlock rwlock;
+          Sched.yield () 
+        done
+      )
+    in
+    for i = 1 to 6 do
+      spawn_reader ();
+      spawn_writer ();
+      spawn_reader ();
+      spawn_reader ();
+      spawn_writer ()
+    done;
+  );
+  
+  (not !invariant_violated, "R/W lock maintains exclusion invariants")
 
 (** Test reusable N-party barrier: no fiber is more than one round
     ahead of any other across multiple barrier crossings. *)
-let test_barrier () = failwith "Not implemented"
+let test_barrier () = 
+  let n = 3 in
+  let rounds = 3 in
+  let barrier = Barrier.create n in
+  
+  let counters = Array.make n 0 in
+  let violation = ref false in
+
+  Sched.run (fun () ->
+    
+    for id = 0 to n - 1 do
+      Sched.fork (fun () ->
+        for r = 1 to rounds do
+          counters.(id) <- r;
+          for j = 0 to n - 1 do
+            if counters.(id) - counters.(j) > 1 then
+              violation := true
+          done;
+          Barrier.wait barrier;
+          Sched.yield ()
+        done
+        
+      )
+    done
+  );
+  if !violation then
+    (false, "Barrier Failed")
+  else if counters.(0) <> rounds || counters.(1) <> rounds || counters.(2) <> rounds then
+    (false, "Not all fibers completed all their rounds")
+  else
+    (true, "Barrier worked perfectly")
 
 (** Test that a semaphore with [k] permits never allows more than
     [k] fibers in the critical section simultaneously. *)
-let test_semaphore () = failwith "Not implemented"
+let test_semaphore () = 
+  let semaphore = Semaphore.create 6 in
+  let cscount = ref 0 in
+  let violation = ref false in
+  Sched.run(fun () -> 
+    let cs s =
+      Semaphore.acquire s;
+      cscount := !cscount + 1;
+      if !cscount > 6 then violation := true;
+      Sched.yield ();
+      if !cscount > 6 then violation := true;
+      cscount := !cscount - 1;
+      Semaphore.release s
+    in
+    for i = 1 to 10 do
+      Sched.fork(fun () -> cs semaphore)
+    done;
+    Sched.yield ()
+    );
+    if !violation then (false, "semaphore allowed more than capacity")
+    else if !cscount <> 0 then (false,"semaphore didnt relase all threads cleanly")
+    else (true,"semaphore never allowed more than capacity")
 
 (** Test that [Select.select] picks an already-free mutex in phase 1
     (the fast path). *)
@@ -210,23 +345,71 @@ let test_lock_evt_blocking () =
 (** Test the load-balancer pattern from Lecture 10's [_scratch/test1.ml]:
     many clients race to claim any of several slot mutexes via
     [Select.select] over [lock_evt]. *)
-let test_load_balancer () = failwith "Not implemented"
+let test_load_balancer () = 
+  let slots = Array.init 3 (fun _ -> 0) in
+  let occupancy = Array.init 3 (fun _ -> 0) in
+  let voilation = ref false in
+  let mutexs = Array.init 3 (fun _ -> Mutex.create ()) in
+  let lock_evts = [ Select.wrap (fun () -> 0) (Mutex.lock_evt mutexs.(0));
+                    Select.wrap (fun () -> 1) (Mutex.lock_evt mutexs.(1)); 
+                    Select.wrap (fun () -> 2) (Mutex.lock_evt mutexs.(2))] in
+  Sched.run(fun () ->
+    for client = 1 to 10 do
+      Sched.fork(fun () -> 
+        let l = Select.select lock_evts in
+        if(occupancy.(l) > 0) then voilation := true;
+        occupancy.(l) <- occupancy.(l) + 1;
+        slots.(l) <- slots.(l) + 1;
+        Sched.yield();
+        occupancy.(l) <- occupancy.(l) -1;
+        Mutex.unlock  mutexs.(l);
+      )
+    done;
+    Sched.yield ();
+  );
+  if !voilation then (false, "Mutual exclusinon violated")
+  else if (occupancy.(0) = 1 || (occupancy.(1) = 1 || occupancy.(2) = 1)) then (false,"All locks are not released cleanly")
+  else if (slots.(0) + slots.(1) + slots.(2) <> 10) then (false,"All clients are not serviced")
+  else (true,"All clients are serviced")
+
 
 (** Test that [Condition.wait] re-acquires the mutex before returning
     (POSIX semantics). *)
-let test_wait_reacquires () = failwith "Not implemented"
+let test_wait_reacquires () = 
+  let mutex = Mutex.create () in 
+  let condition = Condition.create () in
+  let violation = ref false in
+
+  Sched.run(fun () -> 
+    Sched.fork(fun () ->
+      Mutex.lock mutex;
+      Condition.wait condition mutex;
+      Sched.yield();
+      Mutex.unlock mutex
+    );
+
+    Mutex.lock mutex;
+    Condition.signal condition;
+    Mutex.unlock mutex;
+
+    Sched.yield ();
+    violation := Mutex.try_lock mutex;
+    if !violation then  Mutex.unlock mutex
+  );
+  if !violation then (false,"Condition.wait doesnt reacquire mutex before returning")
+  else (true,"Condition.wait does reacquire mutex before returning")
 
 let () =
   Printf.printf "=== Manual tests (fiber-level Mutex/Cond/Sem/Bar) ===\n%!";
   run_test "mutex_basic"           test_mutex_basic;
   run_test "mutex_fifo"            test_mutex_fifo;
-  (* run_test "bounded_buffer"        test_bounded_buffer; *)
-  (* run_test "readers_writers"       test_readers_writers; *)
-  (* run_test "barrier"               test_barrier; *)
-  (* run_test "semaphore"             test_semaphore; *)
+  run_test "bounded_buffer"        test_bounded_buffer;
+  run_test "readers_writers"       test_readers_writers;
+  run_test "barrier"               test_barrier;
+  run_test "semaphore"             test_semaphore;
   run_test "lock_evt_fastpath"     test_lock_evt_fastpath;
   run_test "lock_evt_blocking"     test_lock_evt_blocking;
-  (* run_test "load_balancer"         test_load_balancer; *)
-  (* run_test "wait_reacquires"       test_wait_reacquires; *)
+  run_test "load_balancer"         test_load_balancer;
+  run_test "wait_reacquires"       test_wait_reacquires;
   Printf.printf "\n%d passed, %d failed\n%!" !passed !failed;
   if !failed > 0 then exit 1
