@@ -350,10 +350,11 @@ let test_load_balancer () =
   let occupancy = Array.init 3 (fun _ -> 0) in
   let voilation = ref false in
   let mutexs = Array.init 3 (fun _ -> Mutex.create ()) in
-  let lock_evts = [ Select.wrap (fun () -> 0) (Mutex.lock_evt mutexs.(0));
+  
+  Sched.run(fun () ->
+    let lock_evts = [ Select.wrap (fun () -> 0) (Mutex.lock_evt mutexs.(0));
                     Select.wrap (fun () -> 1) (Mutex.lock_evt mutexs.(1)); 
                     Select.wrap (fun () -> 2) (Mutex.lock_evt mutexs.(2))] in
-  Sched.run(fun () ->
     for client = 1 to 10 do
       Sched.fork(fun () -> 
         let l = Select.select lock_evts in
@@ -362,6 +363,7 @@ let test_load_balancer () =
         slots.(l) <- slots.(l) + 1;
         Sched.yield();
         occupancy.(l) <- occupancy.(l) -1;
+        if(occupancy.(l) > 0) then voilation := true;
         Mutex.unlock  mutexs.(l);
       )
     done;
